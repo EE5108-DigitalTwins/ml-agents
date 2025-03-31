@@ -1,10 +1,6 @@
 using UnityEngine;
 using System.Collections;
 
-/// <summary>
-/// Interactable button that visually animates and changes color when pressed.
-/// Triggers food spawning on use.
-/// </summary>
 public class FoodButton : MonoBehaviour
 {
     [Header("Spawner Reference")]
@@ -12,6 +8,12 @@ public class FoodButton : MonoBehaviour
 
     [Header("Button Settings")]
     [SerializeField] private bool useOnce = true;
+
+    [Header("Food Spawn Area Settings")]
+    [SerializeField] private Vector3 localCenter = Vector3.zero;
+    [SerializeField] private Vector3 minSpawnBounds = new Vector3(-2f, 0f, -2f);
+    [SerializeField] private Vector3 maxSpawnBounds = new Vector3(2f, 0f, 2f);
+    [SerializeField] private float spawnHeight = 0.5f;
 
     [Header("Visual Feedback")]
     [SerializeField] private float pressDistance = 0.1f;
@@ -21,114 +23,92 @@ public class FoodButton : MonoBehaviour
 
     private bool isUsed = false;
     private bool isAnimating = false;
-
     private Vector3 originalPosition;
-    private Coroutine pressCoroutine;
-
     private Renderer buttonRenderer;
 
     private void Start()
     {
         originalPosition = transform.localPosition;
-
         buttonRenderer = GetComponent<Renderer>();
-        if (buttonRenderer != null)
-        {
-            buttonRenderer.material.color = defaultColor;
-        }
+        buttonRenderer.material.color = defaultColor;
     }
 
-    public bool CanUseButton()
-    {
-        return !isUsed && !isAnimating;
-    }
+    public bool CanUseButton() => !isUsed && !isAnimating;
 
     public void UseButton()
     {
-        if (!CanUseButton())
-            return;
+        if (!CanUseButton()) return;
 
-        // Spawn food
+        // Set random food spawn position
+        Vector3 foodSpawnPos = new Vector3(
+            Random.Range(minSpawnBounds.x, maxSpawnBounds.x),
+            spawnHeight,
+            Random.Range(minSpawnBounds.z, maxSpawnBounds.z)
+        ) + localCenter;
+
         if (foodSpawner != null)
         {
+            foodSpawner.transform.localPosition = foodSpawnPos;
             foodSpawner.SpawnFood();
-            Debug.Log("FoodButton: Spawned food!");
         }
 
-        // Animate and change color
-        if (pressCoroutine != null)
-            StopCoroutine(pressCoroutine);
+        // Visual feedback
+        buttonRenderer.material.color = pressedColor;
+        StartCoroutine(AnimatePress());
 
-        pressCoroutine = StartCoroutine(AnimatePress());
-
-        if (buttonRenderer != null)
-        {
-            buttonRenderer.material.color = pressedColor;
-        }
-
-        if (useOnce)
-        {
-            isUsed = true;
-        }
+        if (useOnce) isUsed = true;
     }
 
     public void ResetButton()
     {
         isUsed = false;
-        isAnimating = false;  // Ensure button can be used again
-        Debug.Log("Reset Food Button");
-
-        // start training with this
-        // transform.localPosition = originalPosition;
-
-        // and replace with this
-        transform.localPosition = new Vector3(
-        UnityEngine.Random.Range(4f, 5f),
-        -0.5f, // Slightly above ground
-        UnityEngine.Random.Range(-2.5f, +2.5f)
-        );
-
-        if (buttonRenderer != null)
-        {
-            buttonRenderer.material.color = defaultColor;
-        }
+        transform.localPosition = originalPosition; // Always return to original position
+        buttonRenderer.material.color = defaultColor;
     }
 
     private IEnumerator AnimatePress()
     {
         isAnimating = true;
+        Vector3 pressedPosition = originalPosition - Vector3.up * pressDistance;
 
-        // Vector3 pressedPosition = originalPosition - new Vector3(0, pressDistance, 0);
-        Vector3 pressedPosition = transform.localPosition - new Vector3(0, pressDistance, 0);
-
-        float t = 0f;
-        while (t < pressDuration)
+        // Press down
+        float timer = 0f;
+        while (timer < pressDuration)
         {
-            t += Time.deltaTime;
-            // transform.localPosition = Vector3.Lerp(originalPosition, pressedPosition, t / pressDuration);
-            transform.localPosition = Vector3.Lerp(transform.localPosition, pressedPosition, t / pressDuration);
+            timer += Time.deltaTime;
+            transform.localPosition = Vector3.Lerp(originalPosition, pressedPosition, timer / pressDuration);
             yield return null;
         }
 
-        transform.localPosition = pressedPosition;
-
-        // Optional bounce back for reusable button
+        // Return up (if reusable)
         if (!useOnce)
         {
-            yield return new WaitForSeconds(0.1f);
-
-            // Animate back to original position
-            t = 0f;
-            while (t < pressDuration)
+            timer = 0f;
+            while (timer < pressDuration)
             {
-                t += Time.deltaTime;
-                transform.localPosition = Vector3.Lerp(pressedPosition, originalPosition, t / pressDuration);
+                timer += Time.deltaTime;
+                transform.localPosition = Vector3.Lerp(pressedPosition, originalPosition, timer / pressDuration);
                 yield return null;
             }
-
-            transform.localPosition = originalPosition;
         }
 
-        isAnimating = false; // FIX: Allow the button to be pressed again
+        isAnimating = false;
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        // Draw button's original position
+        Gizmos.color = Color.blue;
+        Gizmos.DrawWireCube(transform.TransformPoint(originalPosition), Vector3.one * 0.2f);
+
+        // Draw food spawn area
+        Gizmos.color = Color.green;
+        Vector3 worldCenter = transform.TransformPoint(localCenter);
+        Vector3 size = new Vector3(
+            Mathf.Abs(minSpawnBounds.x) + Mathf.Abs(maxSpawnBounds.x),
+            0.1f,
+            Mathf.Abs(minSpawnBounds.z) + Mathf.Abs(maxSpawnBounds.z)
+        );
+        Gizmos.DrawWireCube(worldCenter + Vector3.up * spawnHeight, size);
     }
 }

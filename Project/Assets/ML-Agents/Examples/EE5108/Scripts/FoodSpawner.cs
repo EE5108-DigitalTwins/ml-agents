@@ -4,51 +4,88 @@ public class FoodSpawner : MonoBehaviour
 {
     [Header("Prefab Settings")]
     [SerializeField] private GameObject foodPrefab;
+    [SerializeField] private bool spawnAsChild = true;
 
-    [Header("Spawn Settings")]
-    [SerializeField] private Vector3 center = Vector3.zero;
+    [Header("Spawn Area Settings")]
+    [SerializeField] private Vector3 localCenter = Vector3.zero;
 
-    [Tooltip("Range (half-extents) around center to spawn food randomly")]
-    [SerializeField] private Vector2 spawnRange = new Vector2(4f, 4f); // X, Z range
+    [Tooltip("Minimum spawn bounds (local space)")]
+    [SerializeField] private Vector3 minSpawnBounds = new Vector3(-2f, 0f, -2f);
 
-    [Tooltip("Height (Y) offset to spawn above the ground")]
+    [Tooltip("Maximum spawn bounds (local space)")]
+    [SerializeField] private Vector3 maxSpawnBounds = new Vector3(2f, 0f, 2f);
+
+    [Tooltip("Fixed height above ground")]
     [SerializeField] private float spawnHeight = 0.5f;
 
     private GameObject currentFood;
 
     public void SpawnFood()
     {
-        // Generate random position within bounds
-        float randomX = Random.Range(-spawnRange.x, spawnRange.x);
-        float randomZ = Random.Range(-spawnRange.y, spawnRange.y);
-
-        Vector3 spawnPos = center + new Vector3(randomX, spawnHeight, randomZ);
-
-        // Spawn food
-        if (currentFood != null)
+        if (foodPrefab == null)
         {
-            Destroy(currentFood); // Prevent lingering
+            Debug.LogError("Food prefab not assigned in FoodSpawner!", this);
+            return;
         }
 
-        currentFood = Instantiate(foodPrefab, spawnPos, Quaternion.identity);
+        // Generate random position within defined bounds
+        Vector3 localSpawnPos = new Vector3(
+            Random.Range(minSpawnBounds.x, maxSpawnBounds.x),
+            spawnHeight, // Use fixed height
+            Random.Range(minSpawnBounds.z, maxSpawnBounds.z)
+        ) + localCenter;
+
+        Vector3 worldSpawnPos = transform.TransformPoint(localSpawnPos);
+
+        ResetSpawner();
+
+        currentFood = Instantiate(
+            foodPrefab,
+            worldSpawnPos,
+            Quaternion.identity,
+            spawnAsChild ? transform : null
+        );
+
+        currentFood.name = $"Food_{Random.Range(1000, 9999)}";
     }
 
-    public bool HasFoodSpawned()
-    {
-        return currentFood != null;
-    }
+    public bool HasFoodSpawned() => currentFood != null;
 
-    public Transform GetLastFoodTransform()
-    {
-        return currentFood != null ? currentFood.transform : null;
-    }
+    public Transform GetLastFoodTransform() => currentFood?.transform;
 
     public void ResetSpawner()
     {
-        if (currentFood != null)
-        {
+        if (currentFood == null) return;
+
+        if (Application.isPlaying)
             Destroy(currentFood);
-            currentFood = null;
-        }
+        else
+            DestroyImmediate(currentFood);
+
+        currentFood = null;
+    }
+
+    private void OnDrawGizmosSelected()
+    {
+        Gizmos.color = Color.green;
+        Vector3 worldCenter = transform.TransformPoint(localCenter);
+
+        // Calculate spawn area dimensions
+        Vector3 size = new Vector3(
+            Mathf.Abs(minSpawnBounds.x) + Mathf.Abs(maxSpawnBounds.x),
+            0.1f,
+            Mathf.Abs(minSpawnBounds.z) + Mathf.Abs(maxSpawnBounds.z)
+        );
+
+        // Draw spawn area
+        Gizmos.DrawWireCube(
+            worldCenter + Vector3.up * spawnHeight,
+            size
+        );
+
+        // Draw min/max markers
+        Gizmos.color = Color.red;
+        Gizmos.DrawSphere(transform.TransformPoint(localCenter + minSpawnBounds + Vector3.up * spawnHeight), 0.15f);
+        Gizmos.DrawSphere(transform.TransformPoint(localCenter + maxSpawnBounds + Vector3.up * spawnHeight), 0.15f);
     }
 }

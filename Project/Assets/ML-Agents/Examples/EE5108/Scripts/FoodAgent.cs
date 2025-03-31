@@ -4,10 +4,6 @@ using Unity.MLAgents;
 using Unity.MLAgents.Actuators;
 using Unity.MLAgents.Sensors;
 
-/// <summary>
-/// ML-Agents compatible agent that can move, press a FoodButton,
-/// and collect spawned Food objects.
-/// </summary>
 public class FoodAgent : Agent
 {
     [Header("Dependencies")]
@@ -15,9 +11,21 @@ public class FoodAgent : Agent
     [SerializeField] private FoodButton foodButton;
 
     [Header("Movement Settings")]
-    [SerializeField] private float moveSpeed = 5f;
+    [SerializeField] private float moveSpeed = 3f;
+
+    [Header("Spawn Location Settings")]
+    [SerializeField] private Vector3 minSpawnBounds = new Vector3(-2f, 0f, -2f);
+    [SerializeField] private Vector3 maxSpawnBounds = new Vector3(2f, 0f, 2f);
+    [SerializeField] private float spawnHeight = 0.5f;
+
+    [Header("Reward Settings")]
+    [SerializeField] private float buttonPressReward = 1f;
+    [SerializeField] private float foodCollectionReward = 2f;
+    [SerializeField] private float wallCollisionPenalty = -1f;
+    [SerializeField] private float stepPenalty = -0.001f;
 
     private Rigidbody agentRigidbody;
+    private Vector3 originalPosition;
 
     public event EventHandler OnAteFood;
     public event EventHandler OnEpisodeBeginEvent;
@@ -25,15 +33,16 @@ public class FoodAgent : Agent
     private void Start()
     {
         agentRigidbody = GetComponent<Rigidbody>();
+        originalPosition = transform.localPosition;
     }
 
     public override void OnEpisodeBegin()
     {
-        // Reset agent's position and velocity
+        // Reset agent's position within defined bounds
         transform.localPosition = new Vector3(
-            UnityEngine.Random.Range(0f, 0f),
-            0.5f, // Slightly above ground
-            UnityEngine.Random.Range(-2.0f, +2.0f)
+            UnityEngine.Random.Range(minSpawnBounds.x, maxSpawnBounds.x),
+            spawnHeight,
+            UnityEngine.Random.Range(minSpawnBounds.z, maxSpawnBounds.z)
         );
         agentRigidbody.velocity = Vector3.zero;
 
@@ -41,8 +50,6 @@ public class FoodAgent : Agent
         foodSpawner.ResetSpawner();
         foodButton.ResetButton();
 
-
-        // Fire event (optional for training monitoring)
         OnEpisodeBeginEvent?.Invoke(this, EventArgs.Empty);
     }
 
@@ -69,97 +76,88 @@ public class FoodAgent : Agent
         }
         else
         {
-            sensor.AddObservation(0f); // x
-            sensor.AddObservation(0f); // z
+            sensor.AddObservation(0f);
+            sensor.AddObservation(0f);
         }
-
-        // Total: 1 (button) + 2 (button direction) + 1 (food exists) + 2 (food direction) = 6 observations
     }
 
     public override void OnActionReceived(ActionBuffers actions)
     {
-        int moveX = actions.DiscreteActions[0]; // 0 = none, 1 = left, 2 = right
-        int moveZ = actions.DiscreteActions[1]; // 0 = none, 1 = back, 2 = forward
-        int useAction = actions.DiscreteActions[2]; // 0 = no, 1 = use
+        // Movement handling
+        int moveX = actions.DiscreteActions[0];
+        int moveZ = actions.DiscreteActions[1];
+        int useAction = actions.DiscreteActions[2];
 
-        Vector3 direction = Vector3.zero;
+        Vector3 direction = new Vector3(
+            moveX == 1 ? -1f : (moveX == 2 ? 1f : 0f),
+            0f,
+            moveZ == 1 ? -1f : (moveZ == 2 ? 1f : 0f)
+        );
 
-        switch (moveX)
-        {
-            case 1: direction.x = -1f; break; // left
-            case 2: direction.x = +1f; break; // right
-        }
-
-        switch (moveZ)
-        {
-            case 1: direction.z = -1f; break; // back
-            case 2: direction.z = +1f; break; // forward
-        }
-
-        // Move agent
         agentRigidbody.velocity = direction.normalized * moveSpeed + new Vector3(0, agentRigidbody.velocity.y, 0);
 
-        // Attempt to use button when action is triggered
+        // Button press handling
         if (useAction == 1)
         {
-            Collider[] nearby = Physics.OverlapBox(transform.position, Vector3.one * 0.5f);
+            Collider[] nearby = Physics.OverlapBox(transform.position, Vector3.one * 1f);
             foreach (var hit in nearby)
             {
-                if (hit.TryGetComponent<FoodButton>(out FoodButton fb))
+                if (hit.TryGetComponent<FoodButton>(out FoodButton fb) && fb.CanUseButton())
                 {
-                    if (fb.CanUseButton())
-                    {
-                        fb.UseButton();
-                        AddReward(1f); // Reward for successful button press
-                        break;
-                    }
+                    fb.UseButton();
+                    AddReward(buttonPressReward);
+                    break;
                 }
             }
         }
 
+        // Step penalty
         if (MaxStep > 0)
         {
-            AddReward(-1f / MaxStep);  // step penalty
+            AddReward(stepPenalty);
         }
+    }
 
+    private void OnTriggerEnter(Collider other)
+    {
+        if (other.TryGetComponent<Food>(out Food food))
+        {
+            AddReward(foodCollectionReward);
+            Destroy(food.gameObject);
+            OnAteFood?.Invoke(this, EventArgs.Empty);
+            EndEpisode();
+        }
+        else if (other.TryGetComponent<Wall>(out Wall wall))
+        {
+            AddReward(wallCollisionPenalty);
+            EndEpisode();
+        }
     }
 
     public override void Heuristic(in ActionBuffers actionsOut)
     {
         var discrete = actionsOut.DiscreteActions;
-
-        // Move X
-        int horizontal = Mathf.RoundToInt(Input.GetAxisRaw("Horizontal"));
-        discrete[0] = horizontal switch
-        {
-            < 0 => 1,
-            > 0 => 2,
-            _ => 0
-        };
-
-        // Move Z
-        int vertical = Mathf.RoundToInt(Input.GetAxisRaw("Vertical"));
-        discrete[1] = vertical switch
-        {
-            < 0 => 1,
-            > 0 => 2,
-            _ => 0
-        };
-
-        // Use Button
+        discrete[0] = Mathf.RoundToInt(Input.GetAxisRaw("Horizontal")) switch { < 0 => 1, > 0 => 2, _ => 0 };
+        discrete[1] = Mathf.RoundToInt(Input.GetAxisRaw("Vertical")) switch { < 0 => 1, > 0 => 2, _ => 0 };
         discrete[2] = Input.GetKey(KeyCode.E) ? 1 : 0;
     }
 
-    private void OnTriggerEnter(Collider other)
+    // Visualize spawn area in editor
+    private void OnDrawGizmosSelected()
     {
-        Debug.Log("Entered trigger with: " + other.name);
-
-        if (other.TryGetComponent<Food>(out Food food))
-        {
-            AddReward(1f); // Reward for collecting food
-            Destroy(food.gameObject);
-            OnAteFood?.Invoke(this, EventArgs.Empty);
-            EndEpisode(); // Success: reset
-        }
+        Gizmos.color = new Color(0, 1, 0, 0.3f);
+        Vector3 center = new Vector3(
+            (minSpawnBounds.x + maxSpawnBounds.x) / 2,
+            spawnHeight,
+            (minSpawnBounds.z + maxSpawnBounds.z) / 2
+        );
+        Vector3 size = new Vector3(
+            maxSpawnBounds.x - minSpawnBounds.x,
+            0.1f,
+            maxSpawnBounds.z - minSpawnBounds.z
+        );
+        Gizmos.DrawCube(center, size);
+        Gizmos.color = Color.green;
+        Gizmos.DrawWireCube(center, size);
     }
 }

@@ -1,0 +1,29 @@
+{
+    "FoodAgent": {
+        "checkpoints": [
+            {
+                "steps": 100025,
+                "file_path": "results\\FoodAgent\\FoodAgent\\FoodAgent-100025.onnx",
+                "reward": 1.222500056028366,
+                "creation_time": 1743429821.4009032,
+                "auxillary_file_paths": [
+                    "results\\FoodAgent\\FoodAgent\\FoodAgent-100025.pt"
+                ]
+            }
+        ],
+        "final_checkpoint": {
+            "steps": 100025,
+            "file_path": "results\\FoodAgent\\FoodAgent.onnx",
+            "reward": 1.222500056028366,
+            "creation_time": 1743429821.4009032,
+            "auxillary_file_paths": [
+                "results\\FoodAgent\\FoodAgent\\FoodAgent-100025.pt"
+            ]
+        }
+    },
+    "metadata": {
+        "stats_format_version": "0.3.0",
+        "mlagents_version": "1.1.0",
+        "torch_version": "2.2.2+cu121"
+    }
+}
